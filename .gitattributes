@@ -1,0 +1,25 @@
+# Normalize text files to LF in the repository so clones are consistent
+# on Linux, macOS, and Windows.
+* text=auto eol=lf
+
+*.rs          text eol=lf
+*.qml         text eol=lf
+*.toml        text eol=lf
+*.md          text eol=lf
+*.lock        text eol=lf
+.gitignore     text eol=lf
+.gitattributes text eol=lf
+.editorconfig  text eol=lf
+LICENSE        text eol=lf
+
+# Windows helper scripts, if any are added later.
+*.bat         text eol=crlf
+*.cmd         text eol=crlf
+*.ps1         text eol=crlf
+
+# Binary / non-text
+*.png         binary
+*.bin         binary
+*.wasm        binary
+*.84b2        binary
+*.84pk2       binary

@@ -1,0 +1,49 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# Cargo.lock is committed for this binary crate.
+
+# Qt / cxx-qt / QML tooling
+.qmlls.ini
+*.qmlc
+*.jsc
+CMakeLists.txt.user
+CMakeUserPresets.json
+compile_commands.json
+.cache/
+
+# Local reverse-engineering dumps (TI proprietary; not used by the app)
+/ticonnect.js
+/ticonnect.worker.js
+/ticonnect.wasm
+
+# Official OS installer blobs (download separately; see os-dump/README.md)
+/os-dump/*.84b2
+/os-dump/*.84pk2
+
+# Download / probe leftovers
+wget-log
+wget-log.*
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.code-workspace
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Temp
+*.tmp
+*.bak
