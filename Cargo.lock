@@ -666,7 +666,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "ti-screen-kirigami"
+name = "ti-evo-tools"
 version = "0.1.0"
 dependencies = [
  "cxx",
