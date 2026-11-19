@@ -1,6 +1,6 @@
 # TI-84 Evo Tools
 
-A native Linux application for working with a TI-84 Evo over USB. It can
+A native desktop application for working with a TI-84 Evo over USB. It can
 capture the calculator screen, inspect and delete device files, and send
 TI-BASIC or Python programs. The interface is built with standard Qt Quick Controls;
 USB communication, Kermit framing, directory parsing, file conversion, and
@@ -27,10 +27,10 @@ or endorsed by Texas Instruments.
 
 ## Supported hardware and files
 
-The implementation currently targets the TI-84 Evo with USB vendor/product ID
-`0451:e018`. It normally communicates through interface 1, using bulk OUT
-endpoint `0x01` and bulk IN endpoint `0x82`, but it can discover another
-interface that exposes compatible bulk endpoints.
+The implementation targets the TI-84 Evo's CDC serial port (USB vendor/product
+ID `0451:e018`) and exchanges Kermit packets at 115200 baud, 8 data bits, no
+parity, and 1 stop bit. It picks the calculator's serial port by USB identity
+when available, then confirms it with a Kermit initialization ACK.
 
 | Item | Support |
 | --- | --- |
@@ -53,25 +53,22 @@ format's 24-bit source-length field.
 - A C++ compiler, CMake, and `pkg-config`
 - Qt 6 development tools and libraries, including Qt Quick, QML, Controls,
   Dialogs, Layouts, and Network
-- libusb 1.0 development files
+- Access to the calculator's CDC serial device
 - `qmake6` (the exact path varies by distribution)
 
 The package names differ by Linux distribution. Make sure the runtime QML
 modules are installed as well as the Qt development headers.
 
-## USB permissions on Linux
+## Serial permissions and port selection
 
-The logged-in user must be allowed to open `0451:e018`. If the distribution
-does not already grant access through `uaccess`, a rule such as the following
-can be installed as `/etc/udev/rules.d/99-ti-evo.rules`:
+On Linux, the logged-in user must have permission to open the calculator's
+serial port. Add the user to the system's serial-device group (often `dialout`)
+or configure a udev rule for vendor `0451`, product `e018`, then reconnect the
+calculator. On macOS the calculator appears as `/dev/cu.usbmodem*`; on Windows
+it appears as a COM port.
 
-```udev
-SUBSYSTEM=="usb", ATTR{idVendor}=="0451", ATTR{idProduct}=="e018", MODE="0660", GROUP="plugdev", TAG+="uaccess"
-```
-
-Use a group that exists on the system, reload the udev rules, and reconnect the
-calculator. The application may temporarily detach a kernel driver from the
-selected interface and reattach it when finished.
+If automatic selection finds no matching USB identity, set `EVO_USB_SERIAL` to
+the calculator's serial-device path, such as `/dev/cu.usbmodem...` or `COM3`.
 
 ## Build and run
 
@@ -137,21 +134,20 @@ sent to RAM as variable type 15.
 
 ## Command-line tools
 
-All command-line operations exit when the requested probe finishes. The
-`--interface` option is optional; omit it to use automatic bulk-interface
-discovery. Interface 1 is the usual explicit choice for a TI-84 Evo.
+All command-line operations exit when the requested probe finishes. The app
+discovers serial ports automatically and verifies candidates with Kermit.
 
 ### Capture with packet tracing
 
 ```sh
-target/debug/ti-screen-kirigami --probe --interface 1
+target/debug/ti-screen-kirigami --probe
 ```
 
 Diagnostic variants can omit the Kermit break packet or file attributes:
 
 ```sh
-target/debug/ti-screen-kirigami --probe --interface 1 --no-break
-target/debug/ti-screen-kirigami --probe --interface 1 --no-attributes
+target/debug/ti-screen-kirigami --probe --no-break
+target/debug/ti-screen-kirigami --probe --no-attributes
 ```
 
 Those switches are intended for protocol investigation and may cause the
@@ -160,7 +156,7 @@ request to fail.
 ### List or decode device files
 
 ```sh
-target/debug/ti-screen-kirigami --probe-files --interface 1
+target/debug/ti-screen-kirigami --probe-files
 target/debug/ti-screen-kirigami --decode-files /tmp/ti-screen-kirigami/directory.bin
 ```
 
@@ -170,7 +166,7 @@ directory response without accessing USB.
 ### Receive one variable
 
 ```sh
-target/debug/ti-screen-kirigami --probe-var GAME --type 15 --interface 1
+target/debug/ti-screen-kirigami --probe-var GAME --type 15
 ```
 
 This is a diagnostic receive operation. It stores the calculator's raw
@@ -179,14 +175,14 @@ response; it does not currently provide a polished GUI download/export flow.
 ### Send a program
 
 ```sh
-target/debug/ti-screen-kirigami --probe-send ./HELLO.py --interface 1
-target/debug/ti-screen-kirigami --probe-send ./GAME.8xp2 --interface 1
+target/debug/ti-screen-kirigami --probe-send ./HELLO.py
+target/debug/ti-screen-kirigami --probe-send ./GAME.8xp2
 ```
 
 ### Delete one variable
 
 ```sh
-target/debug/ti-screen-kirigami --probe-delete GAME --type 15 --interface 1
+target/debug/ti-screen-kirigami --probe-delete GAME --type 15
 ```
 
 This command is destructive. The type defaults to 15 when `--type` is omitted.
@@ -194,7 +190,7 @@ This command is destructive. The type defaults to 15 when `--type` is omitted.
 ### Read a resource
 
 ```sh
-target/debug/ti-screen-kirigami --probe-uri hh01/sys/attributes --interface 1
+target/debug/ti-screen-kirigami --probe-uri hh01/sys/attributes
 ```
 
 For safety, arbitrary probes are limited to valid resource characters and the
@@ -218,7 +214,7 @@ directory. Files below `/tmp` are not permanent and may be removed at reboot.
 ## Protocol implementation
 
 The application implements the calculator's resource exchange over Kermit
-rather than using the browser APIs from TI Connect. It supports short and long
+on its CDC serial port rather than using the browser APIs from TI Connect. It supports short and long
 Kermit packets, control/repeat quoting, checksum validation, file attributes,
 data chunking, acknowledgements, retransmissions, and the separate response
 transaction that begins after the request's final `B` packet.

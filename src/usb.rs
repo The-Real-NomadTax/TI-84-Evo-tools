@@ -1,11 +1,12 @@
 use crate::kermit::{self, Packet};
-use rusb::{Context, Device, DeviceHandle, Direction, TransferType, UsbContext};
+use serialport::{ClearBuffer, SerialPort, SerialPortType};
+use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 const TI_VENDOR_ID: u16 = 0x0451;
 const TI_84_EVO_PRODUCT_ID: u16 = 0xe018;
-const IO_TIMEOUT: Duration = Duration::from_secs(2);
+const IO_TIMEOUT: Duration = Duration::from_secs(5);
 const CAPTURE_TIMEOUT: Duration = Duration::from_secs(15);
 // TI Connect Evo sends a single zero byte for a variable delete. The Kermit
 // negotiation and file attributes must also match TI's transaction so the
@@ -14,58 +15,42 @@ const DELETE_VARIABLE_PAYLOAD: [u8; 1] = [0];
 static TRACE_USB: AtomicBool = AtomicBool::new(false);
 
 struct Connection {
-    handle: DeviceHandle<Context>,
-    interface: u8,
-    endpoint_in: u8,
-    endpoint_out: u8,
-}
-
-impl Drop for Connection {
-    fn drop(&mut self) {
-        let _ = self.handle.release_interface(self.interface);
-    }
+    port: Box<dyn SerialPort>,
+    path: String,
 }
 
 pub fn capture_screen(include_cursor: bool) -> Result<std::path::PathBuf, String> {
-    let payload = request_screen(include_cursor, None)?;
+    let payload = request_screen(include_cursor)?;
     crate::screen::save(&payload)
 }
 
 pub fn probe_screen(
     include_cursor: bool,
-    interface: Option<u8>,
     send_break: bool,
     send_attributes: bool,
 ) -> Result<std::path::PathBuf, String> {
     TRACE_USB.store(true, Ordering::Relaxed);
-    let payload =
-        request_screen_with_options(include_cursor, interface, send_break, send_attributes)?;
+    let payload = request_screen_with_options(include_cursor, send_break, send_attributes)?;
     crate::screen::save(&payload)
 }
 
-fn request_screen(include_cursor: bool, interface: Option<u8>) -> Result<Vec<u8>, String> {
-    request_screen_with_options(include_cursor, interface, true, true)
+fn request_screen(include_cursor: bool) -> Result<Vec<u8>, String> {
+    request_screen_with_options(include_cursor, true, true)
 }
 
 fn request_screen_with_options(
     include_cursor: bool,
-    interface: Option<u8>,
     send_break: bool,
     send_attributes: bool,
 ) -> Result<Vec<u8>, String> {
     if !include_cursor {
-        return match request_uri("hh01/sys/screen", interface, send_break, send_attributes) {
+        return match request_uri("hh01/sys/screen", send_break, send_attributes) {
             Ok(payload) => Ok(payload),
             Err(error) if error.contains("timed out waiting for a Kermit packet") => {
                 trace(format_args!(
                     "active-screen endpoint did not respond; trying screencapture resource"
                 ));
-                request_resource(
-                    "res?name=screencapture",
-                    interface,
-                    send_break,
-                    send_attributes,
-                )
+                request_resource("res?name=screencapture", send_break, send_attributes)
             }
             Err(error) => Err(error),
         };
@@ -76,24 +61,24 @@ fn request_screen_with_options(
     } else {
         "res?name=screencapture"
     };
-    match request_resource(resource, interface, send_break, send_attributes) {
+    match request_resource(resource, send_break, send_attributes) {
         Ok(payload) => Ok(payload),
         Err(error) if error.contains("timed out waiting for a Kermit packet") => {
             trace(format_args!(
                 "screencapture resource did not respond; trying active-screen endpoint"
             ));
-            request_uri("hh01/sys/screen", interface, send_break, send_attributes)
+            request_uri("hh01/sys/screen", send_break, send_attributes)
         }
         Err(error) => Err(error),
     }
 }
 
 pub fn directory() -> Result<Vec<u8>, String> {
-    request_resource("res?name=directory", None, true, true)
+    request_resource("res?name=directory", true, true)
 }
 
 pub fn send_host_file(path: &std::path::Path) -> Result<String, String> {
-    send_host_file_on_interface(path, None)
+    send_host_file_on_interface(path)
 }
 
 pub fn delete_variable(wire_name: &str, kind: u8) -> Result<(), String> {
@@ -105,30 +90,24 @@ pub fn delete_variable(wire_name: &str, kind: u8) -> Result<(), String> {
         return Err("invalid EVO variable name".into());
     }
     let destination = format!("hh01/del/var?name={wire_name}&type={kind}");
-    let connection = connect(None)?;
-    send_file(&connection, &destination, &DELETE_VARIABLE_PAYLOAD)
+    let mut connection = connect()?;
+    send_file(&mut connection, &destination, &DELETE_VARIABLE_PAYLOAD)
 }
 
-pub fn probe_delete_variable(name: &str, kind: u8, interface: Option<u8>) -> Result<(), String> {
+pub fn probe_delete_variable(name: &str, kind: u8) -> Result<(), String> {
     TRACE_USB.store(true, Ordering::Relaxed);
     let wire_name = crate::ti_file::evo_wire_name(name)?;
     let destination = format!("hh01/del/var?name={wire_name}&type={kind}");
-    let connection = connect(interface)?;
-    send_file(&connection, &destination, &DELETE_VARIABLE_PAYLOAD)
+    let mut connection = connect()?;
+    send_file(&mut connection, &destination, &DELETE_VARIABLE_PAYLOAD)
 }
 
-pub fn probe_send_host_file(
-    path: &std::path::Path,
-    interface: Option<u8>,
-) -> Result<String, String> {
+pub fn probe_send_host_file(path: &std::path::Path) -> Result<String, String> {
     TRACE_USB.store(true, Ordering::Relaxed);
-    send_host_file_on_interface(path, interface)
+    send_host_file_on_interface(path)
 }
 
-fn send_host_file_on_interface(
-    path: &std::path::Path,
-    interface: Option<u8>,
-) -> Result<String, String> {
+fn send_host_file_on_interface(path: &std::path::Path) -> Result<String, String> {
     let variable = crate::ti_file::read(path)?;
     let memory_target = u8::from(variable.archived);
     let destination = format!(
@@ -142,8 +121,8 @@ fn send_host_file_on_interface(
         destination,
         variable.contents.len()
     ));
-    let connection = connect(interface)?;
-    send_file(&connection, &destination, &variable.contents)?;
+    let mut connection = connect()?;
+    send_file(&mut connection, &destination, &variable.contents)?;
     Ok(format!(
         "{} ({} bytes)",
         variable.display_name,
@@ -151,9 +130,9 @@ fn send_host_file_on_interface(
     ))
 }
 
-pub fn probe_directory(interface: Option<u8>) -> Result<std::path::PathBuf, String> {
+pub fn probe_directory() -> Result<std::path::PathBuf, String> {
     TRACE_USB.store(true, Ordering::Relaxed);
-    let payload = request_resource("res?name=directory", interface, true, true)?;
+    let payload = request_resource("res?name=directory", true, true)?;
     let directory = std::env::temp_dir().join("ti-screen-kirigami");
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     let path = directory.join("directory.bin");
@@ -161,7 +140,7 @@ pub fn probe_directory(interface: Option<u8>) -> Result<std::path::PathBuf, Stri
     Ok(path)
 }
 
-pub fn probe_uri(uri: &str, interface: Option<u8>) -> Result<std::path::PathBuf, String> {
+pub fn probe_uri(uri: &str) -> Result<std::path::PathBuf, String> {
     if !uri.starts_with("hh01/")
         || uri.contains("..")
         || !uri.bytes().all(|byte| {
@@ -179,7 +158,7 @@ pub fn probe_uri(uri: &str, interface: Option<u8>) -> Result<std::path::PathBuf,
     }
 
     TRACE_USB.store(true, Ordering::Relaxed);
-    let payload = request_uri(uri, interface, true, true)?;
+    let payload = request_uri(uri, true, true)?;
     let directory = std::env::temp_dir().join("ti-screen-kirigami");
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     let filename = uri
@@ -197,15 +176,11 @@ pub fn probe_uri(uri: &str, interface: Option<u8>) -> Result<std::path::PathBuf,
     Ok(path)
 }
 
-pub fn probe_variable(
-    name: &str,
-    kind: u8,
-    interface: Option<u8>,
-) -> Result<std::path::PathBuf, String> {
+pub fn probe_variable(name: &str, kind: u8) -> Result<std::path::PathBuf, String> {
     TRACE_USB.store(true, Ordering::Relaxed);
     let wire_name = crate::ti_file::evo_wire_name(name)?;
     let uri = format!("hh01/xfr/var?name={wire_name}&type={kind}");
-    let payload = request_uri(&uri, interface, true, true)?;
+    let payload = request_uri(&uri, true, true)?;
     let directory = std::env::temp_dir().join("ti-screen-kirigami");
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     let path = directory.join(format!("{name}-{kind}.bin"));
@@ -215,121 +190,104 @@ pub fn probe_variable(
 
 fn request_resource(
     resource: &str,
-    interface: Option<u8>,
     send_break: bool,
     send_attributes: bool,
 ) -> Result<Vec<u8>, String> {
-    request_uri(
-        &format!("hh01/inf/{resource}"),
-        interface,
-        send_break,
-        send_attributes,
-    )
+    request_uri(&format!("hh01/inf/{resource}"), send_break, send_attributes)
 }
 
-fn request_uri(
-    uri: &str,
-    interface: Option<u8>,
-    send_break: bool,
-    send_attributes: bool,
-) -> Result<Vec<u8>, String> {
-    let connection = connect(interface)?;
+fn request_uri(uri: &str, send_break: bool, send_attributes: bool) -> Result<Vec<u8>, String> {
+    let mut connection = connect()?;
     // The XFR get layer wraps the already-qualified resource URI in another
     // device-qualified `get` command. This is the actual Kermit filename.
     let command = format!("hh01/get/{uri}");
     let mut stream = PacketStream::default();
     let first_response = send_command(
-        &connection,
+        &mut connection,
         &mut stream,
         &command,
         send_break,
         send_attributes,
     )?;
-    receive_resource(&connection, &mut stream, first_response)
+    receive_resource(&mut connection, &mut stream, first_response)
 }
 
-fn connect(requested_interface: Option<u8>) -> Result<Connection, String> {
-    let context = Context::new().map_err(|error| error.to_string())?;
-    let devices = context.devices().map_err(|error| error.to_string())?;
-    let mut permission_error = false;
+fn connect() -> Result<Connection, String> {
+    let ports = serialport::available_ports()
+        .map_err(|error| format!("could not enumerate calculator serial ports: {error}"))?;
+    let mut matching = Vec::new();
+    let mut fallback = Vec::new();
+    for port in ports {
+        let is_ti = match &port.port_type {
+            SerialPortType::UsbPort(info) => {
+                (info.vid, info.pid) == (TI_VENDOR_ID, TI_84_EVO_PRODUCT_ID)
+                    || info
+                        .manufacturer
+                        .as_deref()
+                        .is_some_and(|value| value.contains("Texas Instruments"))
+                    || info
+                        .product
+                        .as_deref()
+                        .is_some_and(|value| value.contains("TI-84"))
+            }
+            _ => false,
+        };
+        if is_ti {
+            matching.push(port.port_name);
+        } else if is_serial_fallback(&port.port_name) {
+            fallback.push(port.port_name);
+        }
+    }
+    matching.sort();
+    fallback.sort();
+    matching.extend(fallback);
+    matching.dedup();
+    if matching.is_empty() {
+        return Err(
+            "no TI-84 EVO CDC serial port found; connect the calculator and try again".into(),
+        );
+    }
 
-    for device in devices.iter() {
-        let descriptor = device
-            .device_descriptor()
-            .map_err(|error| error.to_string())?;
-        if descriptor.vendor_id() != TI_VENDOR_ID || descriptor.product_id() != TI_84_EVO_PRODUCT_ID
-        {
+    let mut failures = Vec::new();
+    for path in matching {
+        trace(format_args!("trying TI calculator serial port {path}"));
+        let port = match serialport::new(&path, 115_200).timeout(IO_TIMEOUT).open() {
+            Ok(port) => port,
+            Err(error) => {
+                failures.push(format!("{path}: could not open serial port: {error}"));
+                continue;
+            }
+        };
+        if let Err(error) = port.clear(ClearBuffer::All) {
+            failures.push(format!("{path}: could not clear serial buffers: {error}"));
             continue;
         }
-        for (interface, endpoint_in, endpoint_out, class) in bulk_interfaces(&device)? {
-            if requested_interface.is_some_and(|requested| requested != interface) {
-                continue;
+        let mut connection = Connection { port, path };
+        let mut stream = PacketStream::default();
+        let handshake = send_packet(&mut connection, &kermit::sender_init(0))
+            .and_then(|()| expect_ack(&mut connection, &mut stream, 0));
+        match handshake {
+            Ok(()) => {
+                trace(format_args!(
+                    "Kermit initialization acknowledged on {}",
+                    connection.path
+                ));
+                return Ok(connection);
             }
-            let handle = match device.open() {
-                Ok(handle) => handle,
-                Err(rusb::Error::Access) => {
-                    permission_error = true;
-                    continue;
-                }
-                Err(_) => continue,
-            };
-            if handle.kernel_driver_active(interface).unwrap_or(false) {
-                let _ = handle.detach_kernel_driver(interface);
-            }
-            if handle.claim_interface(interface).is_err() {
-                continue;
-            }
-            trace(format_args!(
-                "opened {:04x}:{:04x}, interface {interface} class {class:#04x}, OUT {endpoint_out:#04x}, IN {endpoint_in:#04x}",
-                descriptor.vendor_id(),
-                descriptor.product_id()
-            ));
-            return Ok(Connection {
-                handle,
-                interface,
-                endpoint_in,
-                endpoint_out,
-            });
+            Err(error) => failures.push(format!("{}: {error}", connection.path)),
         }
     }
-
-    if permission_error {
-        Err("a TI device was found, but USB permission was denied (install a udev rule for vendor 0451)".into())
-    } else {
-        Err("no TI-84 EVO (USB 0451:e018) bulk interface found".into())
-    }
+    Err(format!(
+        "TI-84 EVO serial port(s) were found, but none completed the Kermit handshake: {}",
+        failures.join("; ")
+    ))
 }
 
-fn bulk_interfaces(device: &Device<Context>) -> Result<Vec<(u8, u8, u8, u8)>, String> {
-    let config = device
-        .active_config_descriptor()
-        .or_else(|_| device.config_descriptor(0))
-        .map_err(|error| error.to_string())?;
-    let mut candidates = Vec::new();
-    for interface in config.interfaces() {
-        for descriptor in interface.descriptors() {
-            let mut endpoint_in = None;
-            let mut endpoint_out = None;
-            for endpoint in descriptor.endpoint_descriptors() {
-                if endpoint.transfer_type() != TransferType::Bulk {
-                    continue;
-                }
-                match endpoint.direction() {
-                    Direction::In => endpoint_in = Some(endpoint.address()),
-                    Direction::Out => endpoint_out = Some(endpoint.address()),
-                }
-            }
-            if let (Some(input), Some(output)) = (endpoint_in, endpoint_out) {
-                candidates.push((
-                    descriptor.interface_number(),
-                    input,
-                    output,
-                    descriptor.class_code(),
-                ));
-            }
-        }
-    }
-    Ok(candidates)
+fn is_serial_fallback(path: &str) -> bool {
+    path.contains("usbmodem")
+        || path.starts_with("/dev/ttyACM")
+        || path.starts_with("/dev/ttyUSB")
+        || path.to_ascii_uppercase().starts_with("COM")
 }
 
 #[derive(Default)]
@@ -338,7 +296,7 @@ struct PacketStream {
 }
 
 fn send_command(
-    connection: &Connection,
+    connection: &mut Connection,
     stream: &mut PacketStream,
     command: &str,
     send_break: bool,
@@ -347,9 +305,6 @@ fn send_command(
     // The dump's XFR layer performs K_SEND with the command URI as its file
     // name and `h` as a one-byte request body. At the B packet, the calculator
     // moves directly into a separate send transaction containing the resource.
-    send_packet(connection, &kermit::sender_init(0))?;
-    expect_ack(connection, stream, 0)?;
-
     send_packet(
         connection,
         &kermit::encode_packet(1, b'F', command.as_bytes()),
@@ -408,12 +363,21 @@ fn send_command(
 }
 
 fn expect_ack(
-    connection: &Connection,
+    connection: &mut Connection,
     stream: &mut PacketStream,
     sequence: u8,
 ) -> Result<(), String> {
     loop {
-        let packet = read_packet(connection, stream)?;
+        let packet = read_packet(connection, stream).map_err(|error| {
+            if error.starts_with("timed out waiting for a Kermit packet") {
+                format!(
+                    "timed out waiting for ACK sequence {sequence} on TI CDC serial port {}: {error}",
+                    connection.path
+                )
+            } else {
+                error
+            }
+        })?;
         match packet.kind {
             b'Y' if packet.sequence == sequence => return Ok(()),
             b'N' => return Err(format!("calculator rejected Kermit packet {sequence}")),
@@ -428,12 +392,12 @@ fn expect_ack(
     }
 }
 
-fn send_file(connection: &Connection, destination: &str, contents: &[u8]) -> Result<(), String> {
+fn send_file(
+    connection: &mut Connection,
+    destination: &str,
+    contents: &[u8],
+) -> Result<(), String> {
     let mut stream = PacketStream::default();
-    send_packet(connection, &kermit::sender_init(0))?;
-    expect_ack(connection, &mut stream, 0)
-        .map_err(|error| format!("during upload initialization: {error}"))?;
-
     send_packet(
         connection,
         &kermit::encode_packet(1, b'F', destination.as_bytes()),
@@ -471,7 +435,7 @@ fn send_file(connection: &Connection, destination: &str, contents: &[u8]) -> Res
 }
 
 fn receive_resource(
-    connection: &Connection,
+    connection: &mut Connection,
     stream: &mut PacketStream,
     first_packet: Option<Packet>,
 ) -> Result<Vec<u8>, String> {
@@ -509,9 +473,10 @@ fn receive_resource(
     Err("calculator did not complete the capture within 15 seconds".into())
 }
 
-fn read_packet(connection: &Connection, stream: &mut PacketStream) -> Result<Packet, String> {
+fn read_packet(connection: &mut Connection, stream: &mut PacketStream) -> Result<Packet, String> {
     let deadline = Instant::now() + CAPTURE_TIMEOUT;
-    let mut usb_buffer = [0u8; 16_384];
+    let mut serial_buffer = [0u8; 4096];
+    let mut bytes_read = 0usize;
     loop {
         match kermit::parse_packet(&stream.buffered) {
             Ok((packet, used)) => {
@@ -528,21 +493,43 @@ fn read_packet(connection: &Connection, stream: &mut PacketStream) -> Result<Pac
             Err(error) => return Err(error.to_string()),
         }
         if Instant::now() >= deadline {
-            return Err("timed out waiting for a Kermit packet".into());
+            let preview = stream
+                .buffered
+                .iter()
+                .take(32)
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            return Err(if bytes_read == 0 {
+                "timed out waiting for a Kermit packet (no serial bytes received)".into()
+            } else {
+                format!(
+                    "timed out waiting for a Kermit packet after receiving {bytes_read} bytes; buffered prefix [{preview}]"
+                )
+            });
         }
-        match connection
-            .handle
-            .read_bulk(connection.endpoint_in, &mut usb_buffer, IO_TIMEOUT)
-        {
-            Ok(length) => stream.buffered.extend_from_slice(&usb_buffer[..length]),
-            Err(rusb::Error::Timeout) => continue,
-            Err(error) => return Err(format!("USB read failed: {error}")),
+        match connection.port.read(&mut serial_buffer) {
+            Ok(length) => {
+                bytes_read += length;
+                trace(format_args!(
+                    "read {length} serial bytes from {}",
+                    connection.path
+                ));
+                stream.buffered.extend_from_slice(&serial_buffer[..length]);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::TimedOut => continue,
+            Err(error) => {
+                return Err(format!(
+                    "serial read failed on {}: {error}",
+                    connection.path
+                ));
+            }
         }
     }
 }
 
 fn handle_packet(
-    connection: &Connection,
+    connection: &mut Connection,
     packet: &Packet,
     contents: &mut Vec<u8>,
     saw_file: &mut bool,
@@ -582,32 +569,44 @@ fn handle_packet(
     Ok(())
 }
 
-fn send_ack(connection: &Connection, sequence: u8, init: bool) -> Result<(), String> {
+fn send_ack(connection: &mut Connection, sequence: u8, init: bool) -> Result<(), String> {
     let ack = kermit::acknowledgement(sequence, init);
     send_packet(connection, &ack)
 }
 
-fn send_packet(connection: &Connection, packet: &[u8]) -> Result<(), String> {
-    if let Ok((decoded, _)) = kermit::parse_packet(packet) {
-        trace(format_args!(
-            "TX type={} seq={} data={} bytes",
-            char::from(decoded.kind),
-            decoded.sequence,
-            decoded.data.len()
-        ));
-    } else {
-        trace(format_args!("TX unparsed packet, {} bytes", packet.len()));
-    }
-    let written = connection
-        .handle
-        .write_bulk(connection.endpoint_out, packet, IO_TIMEOUT)
-        .map_err(|error| format!("could not write Kermit packet: {error}"))?;
-    if written != packet.len() {
-        return Err(format!(
-            "short USB write: wrote {written} of {} bytes",
+fn send_packet(connection: &mut Connection, packet: &[u8]) -> Result<(), String> {
+    let packet_description = match kermit::parse_packet(packet) {
+        Ok((decoded, _)) => {
+            trace(format_args!(
+                "TX type={} seq={} data={} bytes",
+                char::from(decoded.kind),
+                decoded.sequence,
+                decoded.data.len()
+            ));
+            format!(
+                "Kermit {} packet sequence {}",
+                char::from(decoded.kind),
+                decoded.sequence
+            )
+        }
+        Err(_) => {
+            trace(format_args!("TX unparsed packet, {} bytes", packet.len()));
+            "unparsed Kermit packet".to_owned()
+        }
+    };
+    connection.port.write_all(packet).map_err(|error| {
+        format!(
+            "could not write {packet_description} to TI CDC serial port {} ({} bytes): {error}",
+            connection.path,
             packet.len()
-        ));
-    }
+        )
+    })?;
+    connection.port.flush().map_err(|error| {
+        format!(
+            "could not flush TI CDC serial port {}: {error}",
+            connection.path
+        )
+    })?;
     Ok(())
 }
 

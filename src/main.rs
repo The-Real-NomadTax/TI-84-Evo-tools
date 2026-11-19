@@ -16,11 +16,7 @@ fn main() {
         .find(|pair| pair[0] == "--probe-uri")
         .map(|pair| &pair[1])
     {
-        let interface = arguments
-            .windows(2)
-            .find(|pair| pair[0] == "--interface")
-            .and_then(|pair| pair[1].parse::<u8>().ok());
-        match usb::probe_uri(uri, interface) {
+        match usb::probe_uri(uri) {
             Ok(path) => {
                 println!("Resource response saved to {}", path.display());
                 std::process::exit(0);
@@ -41,11 +37,7 @@ fn main() {
             .find(|pair| pair[0] == "--type")
             .and_then(|pair| pair[1].parse::<u8>().ok())
             .unwrap_or(15);
-        let interface = arguments
-            .windows(2)
-            .find(|pair| pair[0] == "--interface")
-            .and_then(|pair| pair[1].parse::<u8>().ok());
-        match usb::probe_delete_variable(name, kind, interface) {
+        match usb::probe_delete_variable(name, kind) {
             Ok(()) => {
                 println!("Deleted {name} (type {kind}) successfully");
                 std::process::exit(0);
@@ -66,11 +58,7 @@ fn main() {
             .find(|pair| pair[0] == "--type")
             .and_then(|pair| pair[1].parse::<u8>().ok())
             .unwrap_or(15);
-        let interface = arguments
-            .windows(2)
-            .find(|pair| pair[0] == "--interface")
-            .and_then(|pair| pair[1].parse::<u8>().ok());
-        match usb::probe_variable(name, kind, interface) {
+        match usb::probe_variable(name, kind) {
             Ok(path) => {
                 println!("Variable response saved to {}", path.display());
                 std::process::exit(0);
@@ -86,11 +74,7 @@ fn main() {
         .find(|pair| pair[0] == "--probe-send")
         .map(|pair| &pair[1])
     {
-        let interface = arguments
-            .windows(2)
-            .find(|pair| pair[0] == "--interface")
-            .and_then(|pair| pair[1].parse::<u8>().ok());
-        match usb::probe_send_host_file(std::path::Path::new(path), interface) {
+        match usb::probe_send_host_file(std::path::Path::new(path)) {
             Ok(description) => {
                 println!("File sent successfully: {description}");
                 std::process::exit(0);
@@ -121,11 +105,7 @@ fn main() {
         }
     }
     if arguments.iter().any(|argument| argument == "--probe-files") {
-        let interface = arguments
-            .windows(2)
-            .find(|pair| pair[0] == "--interface")
-            .and_then(|pair| pair[1].parse::<u8>().ok());
-        match usb::probe_directory(interface) {
+        match usb::probe_directory() {
             Ok(path) => {
                 println!("Directory response saved to {}", path.display());
                 match std::fs::read(&path)
@@ -144,15 +124,11 @@ fn main() {
         }
     }
     if arguments.iter().any(|argument| argument == "--probe") {
-        let interface = arguments
-            .windows(2)
-            .find(|pair| pair[0] == "--interface")
-            .and_then(|pair| pair[1].parse::<u8>().ok());
         let send_break = !arguments.iter().any(|argument| argument == "--no-break");
         let send_attributes = !arguments
             .iter()
             .any(|argument| argument == "--no-attributes");
-        match usb::probe_screen(false, interface, send_break, send_attributes) {
+        match usb::probe_screen(false, send_break, send_attributes) {
             Ok(path) => {
                 println!("Capture saved to {}", path.display());
                 std::process::exit(0);

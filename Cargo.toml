@@ -13,7 +13,7 @@ cxx = "1.0"
 cxx-qt = "0.10"
 cxx-qt-lib = { version = "0.10", features = ["qt_full"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
-rusb = "0.9.4"
+serialport = "4.7"
 
 [build-dependencies]
 cxx-qt-build = { version = "0.10", features = ["link_qt_object_files"] }
