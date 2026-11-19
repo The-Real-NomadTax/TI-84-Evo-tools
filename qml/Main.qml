@@ -2,10 +2,9 @@ import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
-import org.kde.kirigami as Kirigami
 import org.example.tiscreen
 
-Kirigami.ApplicationWindow {
+Controls.ApplicationWindow {
     id: root
     width: 760
     height: 640
@@ -17,8 +16,7 @@ Kirigami.ApplicationWindow {
     CaptureBackend { id: backend }
 
     function openPage(page) {
-        pageStack.clear()
-        pageStack.push(page)
+        pageStack.replace(page)
     }
 
     function navigate(index) {
@@ -39,34 +37,85 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    globalDrawer: Kirigami.GlobalDrawer {
-        title: qsTr("TI Calculator")
-        titleIcon: "accessories-calculator"
-        actions: [
-            Kirigami.Action {
-                text: qsTr("Main Menu")
-                icon.name: "go-home"
-                onTriggered: root.navigate(0)
-            },
-            Kirigami.Action {
-                text: qsTr("Screen Capture")
-                icon.name: "camera-photo"
-                onTriggered: root.navigate(1)
-            },
-            Kirigami.Action {
-                text: qsTr("Device Files")
-                icon.name: "folder"
-                onTriggered: root.navigate(2)
-            },
-            Kirigami.Action {
-                text: qsTr("Send Files")
-                icon.name: "document-send"
-                onTriggered: root.navigate(3)
+    header: Controls.ToolBar {
+        RowLayout {
+            anchors.fill: parent
+
+            Controls.ToolButton {
+                text: qsTr("Navigation")
+                onClicked: navigationDrawer.open()
             }
-        ]
+
+            Controls.Label {
+                Layout.fillWidth: true
+                text: [qsTr("Main Menu"), qsTr("Screen Capture"),
+                       qsTr("Device Files"), qsTr("Send Files")][navigationTabs.currentIndex]
+                font.bold: true
+            }
+        }
     }
 
-    pageStack.initialPage: homePage
+    Controls.Drawer {
+        id: navigationDrawer
+        width: Math.min(root.width * 0.8, 320)
+        height: root.height
+        edge: Qt.LeftEdge
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 16
+            spacing: 8
+
+            Controls.Label {
+                Layout.fillWidth: true
+                text: qsTr("TI Calculator")
+                font.pixelSize: 22
+                font.bold: true
+            }
+
+            Controls.Button {
+                Layout.fillWidth: true
+                text: qsTr("Main Menu")
+                onClicked: {
+                    root.navigate(0)
+                    navigationDrawer.close()
+                }
+            }
+
+            Controls.Button {
+                Layout.fillWidth: true
+                text: qsTr("Screen Capture")
+                onClicked: {
+                    root.navigate(1)
+                    navigationDrawer.close()
+                }
+            }
+
+            Controls.Button {
+                Layout.fillWidth: true
+                text: qsTr("Device Files")
+                onClicked: {
+                    root.navigate(2)
+                    navigationDrawer.close()
+                }
+            }
+
+            Controls.Button {
+                Layout.fillWidth: true
+                text: qsTr("Send Files")
+                onClicked: {
+                    root.navigate(3)
+                    navigationDrawer.close()
+                }
+            }
+        }
+    }
+
+    Controls.StackView {
+        id: pageStack
+        anchors.fill: parent
+        initialItem: homePage
+    }
 
     footer: Controls.TabBar {
         id: navigationTabs
@@ -100,24 +149,24 @@ Kirigami.ApplicationWindow {
     Component {
         id: homePage
 
-        Kirigami.Page {
+        Controls.Page {
             title: qsTr("Main Menu")
 
             ColumnLayout {
                 anchors.centerIn: parent
-                width: Math.min(parent.width - Kirigami.Units.gridUnit * 2,
-                                Kirigami.Units.gridUnit * 28)
-                spacing: Kirigami.Units.largeSpacing
+                width: Math.min(parent.width - 32, 448)
+                spacing: 16
 
-                Kirigami.Heading {
+                Controls.Label {
                     Layout.alignment: Qt.AlignHCenter
                     text: qsTr("TI Calculator Tools")
-                    level: 1
+                    font.pixelSize: 28
+                    font.bold: true
                 }
 
                 Controls.Button {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Kirigami.Units.gridUnit * 4
+                    Layout.preferredHeight: 56
                     text: qsTr("Screen Capture")
                     icon.name: "camera-photo"
                     onClicked: root.navigate(1)
@@ -132,7 +181,7 @@ Kirigami.ApplicationWindow {
 
                 Controls.Button {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Kirigami.Units.gridUnit * 4
+                    Layout.preferredHeight: 56
                     text: qsTr("Check Device Files")
                     icon.name: "folder"
                     enabled: !backend.busy
@@ -151,7 +200,7 @@ Kirigami.ApplicationWindow {
 
                 Controls.Button {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Kirigami.Units.gridUnit * 4
+                    Layout.preferredHeight: 56
                     text: qsTr("Send a File")
                     icon.name: "document-send"
                     enabled: !backend.busy
@@ -171,7 +220,7 @@ Kirigami.ApplicationWindow {
     Component {
         id: screenPage
 
-        Kirigami.Page {
+        Controls.Page {
             id: capturePage
             title: qsTr("Screen Capture")
 
@@ -187,28 +236,19 @@ Kirigami.ApplicationWindow {
                 }
             }
 
-            actions: [
-                Kirigami.Action {
-                    text: qsTr("Capture")
-                    icon.name: "camera-photo"
-                    enabled: !backend.busy
-                    onTriggered: backend.capture(cursorCheck.checked)
-                }
-            ]
-
             ColumnLayout {
                 anchors.fill: parent
-                spacing: Kirigami.Units.largeSpacing
+                spacing: 16
 
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    color: Kirigami.Theme.alternateBackgroundColor
-                    radius: Kirigami.Units.smallSpacing
+                    color: root.palette.alternateBase
+                    radius: 4
 
                     Image {
                         anchors.fill: parent
-                        anchors.margins: Kirigami.Units.largeSpacing
+                        anchors.margins: 16
                         source: backend.imageUrl
                         fillMode: Image.PreserveAspectFit
                         cache: false
@@ -216,13 +256,25 @@ Kirigami.ApplicationWindow {
                         visible: source.toString().length > 0
                     }
 
-                    Kirigami.PlaceholderMessage {
+                    ColumnLayout {
                         anchors.centerIn: parent
-                        width: parent.width - Kirigami.Units.gridUnit * 4
+                        width: parent.width - 64
                         visible: backend.imageUrl.length === 0 && !backend.busy
-                        text: qsTr("No capture yet")
-                        explanation: qsTr("Connect a supported TI calculator over USB.")
-                        icon.name: "accessories-calculator"
+
+                        Controls.Label {
+                            Layout.fillWidth: true
+                            text: qsTr("No capture yet")
+                            font.pixelSize: 20
+                            font.bold: true
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        Controls.Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Connect a supported TI calculator over USB.")
+                            wrapMode: Text.WordWrap
+                            horizontalAlignment: Text.AlignHCenter
+                        }
                     }
 
                     Controls.BusyIndicator {
@@ -253,7 +305,7 @@ Kirigami.ApplicationWindow {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Kirigami.Units.largeSpacing
+                    spacing: 16
 
                     Controls.Switch {
                         id: autoCaptureSwitch
@@ -290,20 +342,21 @@ Kirigami.ApplicationWindow {
                     }
                 }
 
-                Kirigami.InlineMessage {
+                Controls.Label {
                     Layout.fillWidth: true
                     visible: autoCaptureSwitch.checked
                     text: qsTr("Very fast capture intervals, especially below 0.25 seconds, may cause connection issues or make the calculator temporarily unresponsive.")
-                    type: Kirigami.MessageType.Warning
+                    wrapMode: Text.WordWrap
                 }
 
-                Kirigami.InlineMessage {
+                Controls.Label {
                     Layout.fillWidth: true
                     visible: text.length > 0
                     text: backend.status
-                    type: backend.status.indexOf("failed") >= 0
-                        ? Kirigami.MessageType.Error
-                        : Kirigami.MessageType.Information
+                    wrapMode: Text.WordWrap
+                    color: backend.status.indexOf("failed") >= 0
+                        ? "#b00020"
+                        : root.palette.text
                 }
             }
         }
@@ -312,7 +365,7 @@ Kirigami.ApplicationWindow {
     Component {
         id: filesPage
 
-        Kirigami.Page {
+        Controls.Page {
             id: deviceFilesPage
             title: qsTr("Device Files")
             property var deviceFiles: []
@@ -341,7 +394,7 @@ Kirigami.ApplicationWindow {
                 property var pendingFile: null
 
                 contentItem: Controls.Label {
-                    width: Kirigami.Units.gridUnit * 22
+                    width: 352
                     text: deleteDialog.pendingFile
                         ? qsTr("Permanently delete %1 (type %2) from the calculator?")
                             .arg(deleteDialog.pendingFile.name)
@@ -361,31 +414,29 @@ Kirigami.ApplicationWindow {
                 onRejected: pendingFile = null
             }
 
-            actions: [
-                Kirigami.Action {
-                    text: qsTr("Refresh")
-                    icon.name: "view-refresh"
-                    enabled: !backend.busy
-                    onTriggered: backend.refreshFiles()
-                }
-            ]
-
             ColumnLayout {
                 anchors.fill: parent
-                spacing: Kirigami.Units.largeSpacing
+                spacing: 16
+
+                Controls.Button {
+                    Layout.alignment: Qt.AlignRight
+                    text: qsTr("Refresh")
+                    enabled: !backend.busy
+                    onClicked: backend.refreshFiles()
+                }
 
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    color: Kirigami.Theme.alternateBackgroundColor
-                    radius: Kirigami.Units.smallSpacing
+                    color: root.palette.alternateBase
+                    radius: 4
 
                     ListView {
                         id: deviceFileList
                         anchors.fill: parent
-                        anchors.margins: Kirigami.Units.smallSpacing
+                        anchors.margins: 8
                         clip: true
-                        spacing: Kirigami.Units.smallSpacing
+                        spacing: 8
                         model: deviceFilesPage.deviceFiles
 
                         delegate: Controls.ItemDelegate {
@@ -394,7 +445,7 @@ Kirigami.ApplicationWindow {
                             enabled: !backend.busy
 
                             contentItem: RowLayout {
-                                spacing: Kirigami.Units.largeSpacing
+                                spacing: 16
 
                                 ColumnLayout {
                                     Layout.fillWidth: true
@@ -434,13 +485,25 @@ Kirigami.ApplicationWindow {
                         Controls.ScrollBar.vertical: Controls.ScrollBar {}
                     }
 
-                    Kirigami.PlaceholderMessage {
+                    ColumnLayout {
                         anchors.centerIn: parent
-                        width: parent.width - Kirigami.Units.gridUnit * 4
+                        width: parent.width - 64
                         visible: deviceFileList.count === 0 && !backend.busy
-                        text: qsTr("No device files loaded")
-                        explanation: qsTr("Press Refresh to read files from the connected calculator.")
-                        icon.name: "folder"
+
+                        Controls.Label {
+                            Layout.fillWidth: true
+                            text: qsTr("No device files loaded")
+                            font.pixelSize: 20
+                            font.bold: true
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        Controls.Label {
+                            Layout.fillWidth: true
+                            text: qsTr("Press Refresh to read files from the connected calculator.")
+                            wrapMode: Text.WordWrap
+                            horizontalAlignment: Text.AlignHCenter
+                        }
                     }
                 }
 
@@ -450,13 +513,14 @@ Kirigami.ApplicationWindow {
                     visible: running
                 }
 
-                Kirigami.InlineMessage {
+                Controls.Label {
                     Layout.fillWidth: true
                     visible: text.length > 0
                     text: backend.status
-                    type: backend.status.indexOf("failed") >= 0
-                        ? Kirigami.MessageType.Error
-                        : Kirigami.MessageType.Information
+                    wrapMode: Text.WordWrap
+                    color: backend.status.indexOf("failed") >= 0
+                        ? "#b00020"
+                        : root.palette.text
                 }
             }
         }
@@ -465,7 +529,7 @@ Kirigami.ApplicationWindow {
     Component {
         id: sendPage
 
-        Kirigami.Page {
+        Controls.Page {
             id: sendFilePage
             title: qsTr("Send Files")
             property string selectedPath: ""
@@ -487,14 +551,14 @@ Kirigami.ApplicationWindow {
 
             ColumnLayout {
                 anchors.centerIn: parent
-                width: Math.min(parent.width - Kirigami.Units.gridUnit * 2,
-                                Kirigami.Units.gridUnit * 30)
-                spacing: Kirigami.Units.largeSpacing
+                width: Math.min(parent.width - 32, 480)
+                spacing: 16
 
-                Kirigami.Heading {
+                Controls.Label {
                     Layout.alignment: Qt.AlignHCenter
                     text: qsTr("Transfer to Calculator")
-                    level: 1
+                    font.pixelSize: 24
+                    font.bold: true
                 }
 
                 Controls.Label {
@@ -521,7 +585,7 @@ Kirigami.ApplicationWindow {
 
                 Controls.Button {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Kirigami.Units.gridUnit * 3
+                    Layout.preferredHeight: 48
                     text: qsTr("Send to Device")
                     icon.name: "document-send"
                     enabled: sendFilePage.selectedPath.length > 0 && !backend.busy
@@ -534,13 +598,14 @@ Kirigami.ApplicationWindow {
                     visible: running
                 }
 
-                Kirigami.InlineMessage {
+                Controls.Label {
                     Layout.fillWidth: true
                     visible: text.length > 0
                     text: backend.status
-                    type: backend.status.indexOf("failed") >= 0
-                        ? Kirigami.MessageType.Error
-                        : Kirigami.MessageType.Information
+                    wrapMode: Text.WordWrap
+                    color: backend.status.indexOf("failed") >= 0
+                        ? "#b00020"
+                        : root.palette.text
                 }
             }
         }

@@ -2,7 +2,7 @@
 
 A native Linux application for working with a TI-84 Evo over USB. It can
 capture the calculator screen, inspect and delete device files, and send
-TI-BASIC or Python programs. The interface is built with Qt 6 and Kirigami;
+TI-BASIC or Python programs. The interface is built with standard Qt Quick Controls;
 USB communication, Kermit framing, directory parsing, file conversion, and
 screen decoding are implemented in Rust.
 
@@ -53,7 +53,6 @@ format's 24-bit source-length field.
 - A C++ compiler, CMake, and `pkg-config`
 - Qt 6 development tools and libraries, including Qt Quick, QML, Controls,
   Dialogs, Layouts, and Network
-- KDE Kirigami 6
 - libusb 1.0 development files
 - `qmake6` (the exact path varies by distribution)
 
@@ -268,7 +267,7 @@ transfers require a connected Evo with suitable permissions.
 
 | Path | Purpose |
 | --- | --- |
-| `qml/Main.qml` | Kirigami user interface and auto-capture controls |
+| `qml/Main.qml` | Qt Quick Controls user interface and auto-capture controls |
 | `src/backend.rs` | Asynchronous QML-facing backend |
 | `src/usb.rs` | USB discovery and resource operations |
 | `src/kermit.rs` | Kermit framing, quoting, transfer, and response handling |

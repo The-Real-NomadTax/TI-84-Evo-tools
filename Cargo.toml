@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["NomadTax"]
 license = "MIT"
 readme = "README.md"
-description = "A small native Kirigami screen-capture client for TI calculators"
+description = "A small native Qt Quick Controls screen-capture client for TI calculators"
 publish = false
 
 [dependencies]
