@@ -18,3 +18,5 @@ rusb = "0.9.4"
 [build-dependencies]
 cxx-qt-build = { version = "0.10", features = ["link_qt_object_files"] }
 
+[patch.crates-io]
+qt-build-utils = { path = "vendor/qt-build-utils" }
